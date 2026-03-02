@@ -15,6 +15,7 @@ import { useInit } from "./hooks/useQueries";
 import ActivitiesPage from "./pages/ActivitiesPage";
 import EventsPage from "./pages/EventsPage";
 import HomePage from "./pages/HomePage";
+import JoinPage from "./pages/JoinPage";
 import MembersPage from "./pages/MembersPage";
 import MessageBoardPage from "./pages/MessageBoardPage";
 import PhotosPage from "./pages/PhotosPage";
@@ -41,11 +42,26 @@ export default function App() {
   const { actor } = useActor();
   const { mutate: init } = useInit();
 
+  // Detect invite code in URL
+  const [inviteCode] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("code"),
+  );
+
   useEffect(() => {
     if (actor) {
       init();
     }
   }, [actor, init]);
+
+  // If invite code present, show join page instead of main app
+  if (inviteCode) {
+    return (
+      <>
+        <JoinPage code={inviteCode} onJoined={() => setActivePage("home")} />
+        <Toaster />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-pattern flex flex-col">

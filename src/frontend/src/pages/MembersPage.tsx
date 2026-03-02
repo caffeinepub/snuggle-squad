@@ -3,13 +3,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Plus, Trash2, Users } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Link2,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
   useAddSibling,
   useDeleteSibling,
+  useGenerateInviteCode,
+  useGetInviteCodes,
   useListSiblings,
 } from "../hooks/useQueries";
 
@@ -32,10 +43,32 @@ export default function MembersPage() {
   const { data: siblings, isLoading } = useListSiblings();
   const { mutate: addSibling, isPending: isAdding } = useAddSibling();
   const { mutate: deleteSibling, isPending: isDeleting } = useDeleteSibling();
+  const { mutate: generateCode } = useGenerateInviteCode();
+  const { data: inviteCodes } = useGetInviteCodes();
   const [deletingId, setDeletingId] = useState<bigint | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", emoji: "🐻", bio: "" });
   const [customEmoji, setCustomEmoji] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Get the most recent unused invite code
+  const unusedCodes = inviteCodes?.filter((c) => !c.used) ?? [];
+  const latestCode = unusedCodes[unusedCodes.length - 1];
+  const inviteUrl = latestCode
+    ? `${window.location.origin}?code=${latestCode.code}`
+    : null;
+
+  const handleCopyLink = async () => {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      toast.success("Link copied! Share it via WhatsApp or SMS 📲");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Couldn't copy — please copy the link manually");
+    }
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +124,76 @@ export default function MembersPage() {
           <span className="sm:hidden">Add</span>
         </Button>
       </div>
+
+      {/* Invite to Squad Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="bg-gradient-to-br from-primary/10 via-card to-lavender/10 rounded-3xl border border-border shadow-cozy p-5 space-y-4"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary/15 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <Link2 className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="font-display font-bold text-base text-foreground">
+              Invite to Squad
+            </h2>
+            <p className="font-body text-xs text-muted-foreground">
+              Share this link with anyone you want to invite to the Snuggle
+              Squad!
+            </p>
+          </div>
+        </div>
+
+        {inviteUrl ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 bg-muted rounded-2xl px-3 py-2.5 border border-border">
+              <span className="font-body text-xs text-muted-foreground flex-1 truncate select-all">
+                {inviteUrl}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleCopyLink}
+                className="rounded-2xl font-body font-semibold gap-2 flex-1 shadow-cozy"
+                variant={copied ? "secondary" : "default"}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Copy Link
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => generateCode()}
+                className="rounded-2xl font-body gap-2"
+                title="Generate a new link"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="hidden sm:inline">New Link</span>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            onClick={() => generateCode()}
+            className="rounded-2xl font-body font-semibold gap-2 w-full shadow-cozy"
+          >
+            <Link2 className="w-4 h-4" />
+            Generate Invite Link
+          </Button>
+        )}
+      </motion.div>
 
       {/* Add Form */}
       <AnimatePresence>

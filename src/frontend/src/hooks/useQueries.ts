@@ -37,8 +37,33 @@ export function useListSiblings() {
   });
 }
 
+async function waitForActorFromCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  maxWaitMs = 15000,
+): Promise<NonNullable<ReturnType<typeof useActor>["actor"]>> {
+  const interval = 300;
+  const maxRetries = Math.ceil(maxWaitMs / interval);
+  let retries = 0;
+  while (retries < maxRetries) {
+    // Read directly from the query cache -- always fresh
+    const cacheEntries = queryClient.getQueriesData<
+      ReturnType<typeof useActor>["actor"]
+    >({
+      queryKey: ["actor"],
+    });
+    for (const [, data] of cacheEntries) {
+      if (data)
+        return data as NonNullable<ReturnType<typeof useActor>["actor"]>;
+    }
+    await new Promise((r) => setTimeout(r, interval));
+    retries++;
+  }
+  throw new Error(
+    "Could not connect to the app. Please refresh and try again.",
+  );
+}
+
 export function useAddSibling() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -46,7 +71,7 @@ export function useAddSibling() {
       emoji,
       bio,
     }: { name: string; emoji: string; bio: string }) => {
-      if (!actor) throw new Error("No actor");
+      const actor = await waitForActorFromCache(queryClient);
       return actor.addSibling(name, emoji, bio);
     },
     onSuccess: () => {
@@ -57,11 +82,10 @@ export function useAddSibling() {
 }
 
 export function useDeleteSibling() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: bigint) => {
-      if (!actor) throw new Error("No actor");
+      const actor = await waitForActorFromCache(queryClient);
       return actor.deleteSibling(id);
     },
     onSuccess: () => {
@@ -84,14 +108,13 @@ export function useListMessages() {
 }
 
 export function usePostMessage() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       author,
       content,
     }: { author: string; content: string }) => {
-      if (!actor) throw new Error("No actor");
+      const actor = await waitForActorFromCache(queryClient);
       return actor.postMessage(author, content);
     },
     onSuccess: () => {
@@ -102,11 +125,10 @@ export function usePostMessage() {
 }
 
 export function useDeleteMessage() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (messageId: bigint) => {
-      if (!actor) throw new Error("No actor");
+      const actor = await waitForActorFromCache(queryClient);
       return actor.deleteMessage(messageId);
     },
     onSuccess: () => {
@@ -129,19 +151,85 @@ export function useListActivities() {
 }
 
 export function useAddActivity() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       description,
       creator,
     }: { description: string; creator: string }) => {
-      if (!actor) throw new Error("No actor");
+      const actor = await waitForActorFromCache(queryClient);
       return actor.addActivity(description, creator);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activities"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+// ─── Invite codes — stored client-side in localStorage (instant, no backend) ───
+
+const INVITE_CODES_KEY = "snuggle-squad-invite-codes";
+
+function loadInviteCodes(): { code: string; used: boolean }[] {
+  try {
+    const raw = localStorage.getItem(INVITE_CODES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as { code: string; used: boolean }[];
+  } catch {
+    return [];
+  }
+}
+
+function saveInviteCodes(codes: { code: string; used: boolean }[]): void {
+  localStorage.setItem(INVITE_CODES_KEY, JSON.stringify(codes));
+}
+
+function generateCode(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+export function useGenerateInviteCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const code = generateCode();
+      const existing = loadInviteCodes();
+      saveInviteCodes([...existing, { code, used: false }]);
+      return code;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inviteCodes"] });
+    },
+  });
+}
+
+export function useGetInviteCodes() {
+  return useQuery<{ code: string; used: boolean }[]>({
+    queryKey: ["inviteCodes"],
+    queryFn: () => loadInviteCodes(),
+    // Always enabled — reads from localStorage, no actor needed
+    staleTime: 0,
+  });
+}
+
+export function useSubmitRSVP() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      inviteCode,
+    }: { name: string; attending: boolean; inviteCode: string }) => {
+      const codes = loadInviteCodes();
+      const updated = codes.map((c) =>
+        c.code === inviteCode ? { ...c, used: true } : c,
+      );
+      saveInviteCodes(updated);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inviteCodes"] });
     },
   });
 }
